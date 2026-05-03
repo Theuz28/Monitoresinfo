@@ -16,7 +16,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -257,6 +257,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--white);
       <button class="tab active" onclick="setTab('grupos',this)">🗂 Grupos</button>
       <button class="tab" onclick="setTab('monitores',this)">👤 Monitores</button>
       <button class="tab" onclick="setTab('confirmacoes',this)">✓ Confirmações</button>
+      <button class="tab" onclick="setTab('graficos',this)">📊 Gráficos</button>
     </div>
 
     <!-- TAB GRUPOS -->
@@ -332,6 +333,36 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--white);
       </div>
       <div id="loadingConf" class="loading-bar" style="margin-bottom:16px"></div>
       <div id="listConfirmacoes"></div>
+    </div>
+
+    <!-- TAB GRÁFICOS -->
+    <div id="tab-graficos" style="display:none">
+
+      <div class="stats" style="grid-template-columns:repeat(3,1fr)">
+        <div class="stat"><div class="stat-val teal" id="gStatSemana">0</div><div class="stat-lbl">Esta semana</div></div>
+        <div class="stat"><div class="stat-val" id="gStatPassada">0</div><div class="stat-lbl">Sem. passada</div></div>
+        <div class="stat"><div class="stat-val amber" id="gStatMedia">0</div><div class="stat-lbl">Média diária</div></div>
+      </div>
+
+      <div class="card" style="margin-bottom:18px">
+        <div class="card-title"><div class="card-title-left"><div class="dot"></div>Confirmações por dia da semana</div></div>
+        <div id="chartLegendBar" style="display:flex;flex-wrap:wrap;gap:14px;margin-bottom:12px;font-size:12px;color:var(--gray)"></div>
+        <div style="position:relative;width:100%;height:240px">
+          <canvas id="chartBar" role="img" aria-label="Confirmações por dia da semana agrupadas por grupo">Carregando...</canvas>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:18px">
+        <div class="card-title"><div class="card-title-left"><div class="dot"></div>Presenças por monitor</div></div>
+        <div id="chartMonitorBars"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><div class="card-title-left"><div class="dot"></div>Histórico semanal</div></div>
+        <div style="position:relative;width:100%;height:200px">
+          <canvas id="chartLine" role="img" aria-label="Total de confirmações por semana">Carregando...</canvas>
+        </div>
+      </div>
     </div>
 
     <div style="margin-top:26px;text-align:center">
@@ -846,11 +877,152 @@ function setTab(tab, el) {
   currentTab = tab;
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   el.classList.add('active');
-  ['grupos','monitores','confirmacoes'].forEach(t => {
+  ['grupos','monitores','confirmacoes','graficos'].forEach(t => {
     document.getElementById('tab-'+t).style.display = t===tab ? 'block' : 'none';
   });
   if (tab==='monitores') renderMonitores();
   if (tab==='confirmacoes') renderConfirmacoes();
+  if (tab==='graficos') renderGraficos();
+}
+
+// ── GRAFICOS ───────────────────────────────────────────
+let barChartInst = null;
+let lineChartInst = null;
+
+function getWeekKey(dateStr) {
+  const [d,m,y] = dateStr.split('/');
+  const dt = new Date(y, m-1, d);
+  const startOfYear = new Date(y, 0, 1);
+  const weekNo = Math.ceil(((dt - startOfYear) / 86400000 + startOfYear.getDay() + 1) / 7);
+  return `${y}-W${String(weekNo).padStart(2,'0')}`;
+}
+
+function getDayIndex(dateStr) {
+  const [d,m,y] = dateStr.split('/');
+  const day = new Date(y, m-1, d).getDay();
+  return day === 0 ? 6 : day - 1; // Mon=0 ... Fri=4, ignore Sat/Sun
+}
+
+function renderGraficos() {
+  const hoje = new Date();
+  const startOfThisWeek = new Date(hoje);
+  startOfThisWeek.setDate(hoje.getDate() - ((hoje.getDay()+6)%7));
+  startOfThisWeek.setHours(0,0,0,0);
+  const startOfLastWeek = new Date(startOfThisWeek);
+  startOfLastWeek.setDate(startOfLastWeek.getDate()-7);
+
+  const thisWeek = confirmations.filter(c => parseDate(c.date) >= startOfThisWeek);
+  const lastWeek = confirmations.filter(c => parseDate(c.date) >= startOfLastWeek && parseDate(c.date) < startOfThisWeek);
+
+  // Stats
+  const daysWithConf = [...new Set(thisWeek.map(c=>c.date))].length||1;
+  document.getElementById('gStatSemana').textContent  = thisWeek.length;
+  document.getElementById('gStatPassada').textContent = lastWeek.length;
+  document.getElementById('gStatMedia').textContent   = (thisWeek.length/Math.max(daysWithConf,1)).toFixed(1);
+
+  // ── Bar chart: confirmations per day of week, per group ──
+  const days = ['Segunda','Terça','Quarta','Quinta','Sexta'];
+  const groupColors = ['#1D9E75','#7F77DD','#BA7517','#5bc8f5','#fd79a8','#ff7b7b','#55efc4','#ff9f43'];
+  const datasets = [];
+  const legendEl = document.getElementById('chartLegendBar');
+  legendEl.innerHTML = '';
+
+  groups.forEach((g, i) => {
+    const color = g.color || groupColors[i % groupColors.length];
+    const data = [0,0,0,0,0];
+    thisWeek.filter(c => c.groupId === g.id).forEach(c => {
+      const idx = getDayIndex(c.date);
+      if (idx >= 0 && idx < 5) data[idx]++;
+    });
+    datasets.push({label: g.name, data, backgroundColor: color, borderRadius: 4});
+    legendEl.innerHTML += `<span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:${color}"></span>${g.name}</span>`;
+  });
+
+  // No group
+  const noGroupConfs = thisWeek.filter(c => !c.groupId);
+  if (noGroupConfs.length) {
+    const data = [0,0,0,0,0];
+    noGroupConfs.forEach(c => { const idx=getDayIndex(c.date); if(idx>=0&&idx<5) data[idx]++; });
+    datasets.push({label:'Sem grupo', data, backgroundColor:'#8fa3b1', borderRadius:4});
+    legendEl.innerHTML += `<span style="display:flex;align-items:center;gap:4px"><span style="width:10px;height:10px;border-radius:2px;background:#8fa3b1"></span>Sem grupo</span>`;
+  }
+
+  if (barChartInst) barChartInst.destroy();
+  barChartInst = new Chart(document.getElementById('chartBar'), {
+    type: 'bar',
+    data: { labels: days, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid:{display:false}, ticks:{font:{size:12},color:'#8fa3b1',autoSkip:false} },
+        y: { beginAtZero:true, ticks:{stepSize:1,font:{size:12},color:'#8fa3b1'}, grid:{color:'rgba(143,163,177,0.15)'} }
+      }
+    }
+  });
+
+  // ── Monitor bars ──
+  const monitorMap = {};
+  confirmations.forEach(c => {
+    const key = c.monitorId || c.name;
+    if (!monitorMap[key]) monitorMap[key] = {name:c.name, color:c.groupColor||'#8fa3b1', count:0};
+    monitorMap[key].count++;
+  });
+  const sorted = Object.values(monitorMap).sort((a,b)=>b.count-a.count);
+  const maxC = sorted[0]?.count||1;
+  const mbEl = document.getElementById('chartMonitorBars');
+  mbEl.innerHTML = sorted.length ? sorted.map(m => {
+    const pct = Math.round((m.count/maxC)*100);
+    return `<div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+        <span>${m.name}</span>
+        <span style="color:var(--gray)">${m.count} presença(s)</span>
+      </div>
+      <div style="background:rgba(255,255,255,.05);border-radius:4px;height:8px;overflow:hidden">
+        <div style="width:${pct}%;background:${m.color};height:100%;border-radius:4px"></div>
+      </div>
+    </div>`;
+  }).join('') : '<div class="empty"><div class="empty-icon">📊</div><p>Nenhum dado ainda.</p></div>';
+
+  // ── Line chart: last 4 weeks ──
+  const weekLabels = [];
+  const weekData = [];
+  for (let w = 3; w >= 0; w--) {
+    const wStart = new Date(startOfThisWeek);
+    wStart.setDate(wStart.getDate() - w*7);
+    const wEnd = new Date(wStart);
+    wEnd.setDate(wEnd.getDate()+7);
+    const label = w===0 ? 'Esta semana' : w===1 ? 'Sem. passada' : `${w} sem. atrás`;
+    weekLabels.push(label);
+    weekData.push(confirmations.filter(c => { const d=parseDate(c.date); return d>=wStart && d<wEnd; }).length);
+  }
+
+  if (lineChartInst) lineChartInst.destroy();
+  lineChartInst = new Chart(document.getElementById('chartLine'), {
+    type: 'line',
+    data: {
+      labels: weekLabels,
+      datasets: [{
+        label: 'Total',
+        data: weekData,
+        borderColor: '#00c9a7',
+        backgroundColor: 'rgba(0,201,167,0.08)',
+        borderWidth: 2,
+        pointBackgroundColor: '#00c9a7',
+        pointRadius: 5,
+        fill: true,
+        tension: 0.3
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend:{display:false} },
+      scales: {
+        x: { grid:{display:false}, ticks:{font:{size:12},color:'#8fa3b1'} },
+        y: { beginAtZero:true, ticks:{stepSize:1,font:{size:12},color:'#8fa3b1'}, grid:{color:'rgba(143,163,177,0.15)'} }
+      }
+    }
+  });
 }
 
 // ── COLOR SWATCHES ─────────────────────────────────────
