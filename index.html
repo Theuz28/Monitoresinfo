@@ -73,6 +73,9 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--white);
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .error-msg{color:var(--red);font-size:.83rem;margin-bottom:10px;display:none}
 .error-msg.show{display:block}
+.edit-badge{background:rgba(247,201,72,.15);color:var(--amber);border:1px solid rgba(247,201,72,.35);font-size:.68rem;font-weight:600;padding:3px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:.4px}
+.form-btn-row{display:flex;gap:8px;margin-top:4px}
+.form-btn-row .btn-full{margin-top:0}
 
 /* CONFIRM SCREEN */
 .confirm-wrap{text-align:center;padding:52px 20px}
@@ -164,6 +167,39 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--white);
 .center-msg h2{font-family:'Syne',sans-serif;font-size:1.5rem;font-weight:800;margin-bottom:10px}
 .center-msg p{color:var(--gray);line-height:1.6;margin-bottom:20px}
 
+/* ERROR / RETRY */
+.retry-box{background:rgba(255,87,87,.08);border:1px solid rgba(255,87,87,.25);border-radius:12px;padding:18px;text-align:center;margin-top:18px}
+.retry-box p{color:#ffb3b3;font-size:.85rem;margin-bottom:12px;line-height:1.6}
+
+/* TODAY TABLE (home) */
+.today-card{margin-top:8px}
+.today-refresh{font-size:.72rem;color:var(--gray)}
+.today-table{width:100%;border-collapse:collapse;font-size:.85rem}
+.today-table th{text-align:left;color:var(--gray);font-size:.7rem;text-transform:uppercase;letter-spacing:.5px;padding:0 8px 10px;font-weight:600}
+.today-table td{padding:9px 8px;border-top:1px solid var(--border)}
+.today-table tr:hover td{background:rgba(255,255,255,.02)}
+.today-name{font-weight:600}
+.today-status{display:inline-flex;align-items:center;gap:5px;color:var(--teal);font-size:.78rem;font-weight:600}
+.today-status-pending{color:var(--gray)}
+.today-scope-lbl{font-size:.78rem;color:var(--gray);margin-bottom:12px;line-height:1.5}
+.today-scope-lbl strong{color:var(--white)}
+
+/* BULK QR */
+.qr-toolbar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.qr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px}
+.qr-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;text-align:center}
+.qr-card canvas{border-radius:8px;border:3px solid var(--teal);padding:6px;background:#fff;margin-bottom:10px}
+.qr-card-name{font-family:'Syne',sans-serif;font-weight:700;font-size:.92rem;margin-bottom:2px}
+.qr-card-group{font-size:.72rem;margin-bottom:8px}
+.qr-card-link{font-size:.66rem;color:var(--gray);word-break:break-all;background:rgba(255,255,255,.04);border-radius:6px;padding:6px 8px;line-height:1.5}
+@media print{
+  body *{visibility:hidden}
+  #printArea, #printArea *{visibility:visible}
+  #printArea{position:absolute;top:0;left:0;width:100%}
+  .qr-card{break-inside:avoid;border:1px solid #ccc}
+  .qr-card canvas{border-color:#333}
+}
+
 @media(max-width:600px){
   .header{padding:13px 16px}
   .main{padding:22px 14px}
@@ -185,6 +221,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--white);
     <div class="logo-sub">Monitores</div>
   </div>
   <div class="header-btns">
+    <button class="btn btn-ghost btn-sm" id="homeBtn" onclick="goHome()" title="Página inicial">🏠</button>
     <button class="btn btn-ghost btn-sm" id="fsBtn" onclick="toggleFS()" title="Tela cheia">⛶</button>
     <button class="btn btn-ghost btn-sm" id="adminBtn" onclick="showScreen('adminLogin')">🔒 Admin</button>
   </div>
@@ -212,6 +249,18 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--white);
     <div style="background:rgba(124,92,191,.08);border:1px solid rgba(124,92,191,.25);border-radius:12px;padding:20px;text-align:center">
       <div style="font-size:2rem;margin-bottom:8px">🔒</div>
       <p style="font-size:.88rem;color:#c5b3f0;line-height:1.6">Acesso restrito a monitores cadastrados.<br>Escaneie o seu QR Code pessoal para confirmar presença.</p>
+    </div>
+
+    <div class="card today-card">
+      <div class="card-title">
+        <div class="card-title-left"><div class="dot"></div>Presenças de hoje</div>
+        <span class="today-refresh" id="todayDateLabel"></span>
+      </div>
+      <div id="loadingToday" class="loading-bar" style="margin-bottom:14px"></div>
+      <div id="todayTableWrap"></div>
+      <div style="text-align:center;margin-top:14px">
+        <button class="btn btn-ghost btn-sm" onclick="reloadToday()">🔄 Atualizar</button>
+      </div>
     </div>
   </div>
 </div>
@@ -263,7 +312,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--white);
     <!-- TAB GRUPOS -->
     <div id="tab-grupos">
       <div class="card">
-        <div class="card-title"><div class="card-title-left"><div class="dot"></div>Novo Grupo</div></div>
+        <div class="card-title"><div class="card-title-left"><div class="dot"></div><span id="groupFormTitle">Novo Grupo</span></div><span class="edit-badge" id="groupEditBadge" style="display:none">Editando</span></div>
         <div class="form-group">
           <label>Nome do Grupo</label>
           <input type="text" id="newGroupName" placeholder="Ex: Grupo A, Turma 1..."/>
@@ -273,7 +322,10 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--white);
           <div class="swatches" id="colorSwatches"></div>
         </div>
         <div class="error-msg" id="groupError"></div>
-        <button class="btn btn-teal btn-full" onclick="addGroup()">+ Criar Grupo</button>
+        <div class="form-btn-row">
+          <button class="btn btn-teal btn-full" id="groupSubmitBtn" onclick="addGroup()">+ Criar Grupo</button>
+          <button class="btn btn-ghost" id="groupCancelBtn" style="display:none" onclick="cancelEditGroup()">Cancelar</button>
+        </div>
       </div>
       <div id="loadingGroups" class="loading-bar" style="margin-bottom:16px"></div>
       <div id="listGroups"></div>
@@ -282,7 +334,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--white);
     <!-- TAB MONITORES -->
     <div id="tab-monitores" style="display:none">
       <div class="card">
-        <div class="card-title"><div class="card-title-left"><div class="dot"></div>Novo Monitor</div></div>
+        <div class="card-title"><div class="card-title-left"><div class="dot"></div><span id="monitorFormTitle">Novo Monitor</span></div><span class="edit-badge" id="monitorEditBadge" style="display:none">Editando</span></div>
         <div class="form-row">
           <div class="form-group">
             <label>Nome do Monitor</label>
@@ -296,13 +348,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--white);
           </div>
         </div>
         <div class="error-msg" id="monitorError"></div>
-        <button class="btn btn-teal btn-full" onclick="addMonitor()">+ Adicionar Monitor</button>
+        <div class="form-btn-row">
+          <button class="btn btn-teal btn-full" id="monitorSubmitBtn" onclick="addMonitor()">+ Adicionar Monitor</button>
+          <button class="btn btn-ghost" id="monitorCancelBtn" style="display:none" onclick="cancelEditMonitor()">Cancelar</button>
+        </div>
       </div>
       <div class="toolbar">
         <input type="text" id="searchMonitor" placeholder="🔍 Buscar monitor..." oninput="renderMonitores()"/>
         <select id="filterGroup" onchange="renderMonitores()">
           <option value="">Todos os grupos</option>
         </select>
+        <button class="btn btn-amber btn-sm" onclick="openBulkQR()">🖨 Gerar QR Codes (lote)</button>
       </div>
       <div id="loadingMonitores" class="loading-bar" style="margin-bottom:16px"></div>
       <div id="listMonitores"></div>
@@ -371,6 +427,23 @@ body{font-family:'DM Sans',sans-serif;background:var(--navy);color:var(--white);
   </div>
 </div>
 
+<!-- ═══ BULK QR (impressão em lote) ═══ -->
+<div id="screen-bulkQR" class="screen">
+  <div class="main">
+    <div class="hero" style="padding-bottom:14px">
+      <div class="badge">📄 QR Codes em Lote</div>
+      <h1 id="bulkQRTitle">QR Codes dos <span>Monitores</span></h1>
+    </div>
+    <div class="qr-toolbar">
+      <button class="btn btn-ghost btn-sm" onclick="showScreen('admin')">← Voltar ao painel</button>
+      <button class="btn btn-teal btn-sm" onclick="window.print()">🖨 Imprimir / Salvar PDF</button>
+    </div>
+    <div id="printArea">
+      <div class="qr-grid" id="bulkQRGrid"></div>
+    </div>
+  </div>
+</div>
+
 <!-- QR MODAL -->
 <div id="qrModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)this.style.display='none'">
   <div class="modal">
@@ -402,16 +475,23 @@ let groups = [];
 let monitors = [];
 let confirmations = [];
 let currentTab = 'grupos';
+let editingGroupId = null;
+let editingMonitorId = null;
 let configured = (JSONBIN_KEY !== 'SEU_API_KEY_AQUI' && BIN_ID !== 'SEU_BIN_ID_AQUI');
 
 // ── JSONBIN ────────────────────────────────────────────
 const API = `https://api.jsonbin.io/v3/b/${BIN_ID}`;
 const HEADERS = {'Content-Type':'application/json','X-Master-Key':JSONBIN_KEY,'X-Access-Key':JSONBIN_KEY,'X-Bin-Meta':'false'};
 
+let lastLoadFailed = false;
+
 async function load() {
-  if (!configured) { hideLoading(); checkToken(); return; }
+  if (!configured) { hideLoading(); lastLoadFailed = false; checkToken(); return; }
   try {
-    const r = await fetch(API, {headers: HEADERS});
+    const ctrl = new AbortController();
+    const timeoutId = setTimeout(() => ctrl.abort(), 12000);
+    const r = await fetch(API, {headers: HEADERS, signal: ctrl.signal});
+    clearTimeout(timeoutId);
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const data = await r.json();
 
@@ -419,6 +499,7 @@ async function load() {
     groups        = Array.isArray(data.groups)        ? data.groups        : [];
     monitors      = Array.isArray(data.monitors)      ? data.monitors      : [];
     confirmations = Array.isArray(data.confirmations) ? data.confirmations : [];
+    lastLoadFailed = false;
 
     // se o bin estava com estrutura errada, corrige automaticamente
     const hasWrongStructure = !data.hasOwnProperty('groups') || !data.hasOwnProperty('monitors');
@@ -428,13 +509,104 @@ async function load() {
     }
   } catch(e) {
     console.error('Erro ao carregar dados:', e);
-    showToast('Erro ao carregar dados: ' + e.message, 'error');
-    groups=[]; monitors=[]; confirmations=[];
+    lastLoadFailed = true;
+    // mantém os dados já carregados anteriormente (se houver) em vez de zerar,
+    // para não quebrar a tela de confirmação/tabela com um erro passageiro de rede
+    if (!groups.length && !monitors.length && !confirmations.length) {
+      showToast('Erro ao carregar dados: ' + e.message, 'error');
+    } else {
+      showToast('Não foi possível atualizar agora (mostrando últimos dados).', 'error');
+    }
   }
   hideLoading();
   checkToken();
+  renderHomeToday();
   const adminScreen = document.getElementById('screen-admin');
   if (adminScreen && adminScreen.classList.contains('active')) renderAll();
+}
+
+// ── HOME: TODAY'S ATTENDANCE (public, no admin needed) ──
+function normalizeStr(s) {
+  return (s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+}
+
+function getWeekdayKeyword(date) {
+  const dias = ['domingo','segunda','terca','quarta','quinta','sexta','sabado'];
+  return dias[date.getDay()];
+}
+
+function renderHomeToday() {
+  const wrap = document.getElementById('todayTableWrap');
+  const dateLbl = document.getElementById('todayDateLabel');
+  if (!wrap) return; // screen not in DOM yet
+
+  const now = new Date();
+  const hoje = now.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const weekdayName = now.toLocaleDateString('pt-BR',{weekday:'long'});
+  const weekdayLabel = weekdayName.charAt(0).toUpperCase() + weekdayName.slice(1);
+  if (dateLbl) dateLbl.textContent = `${weekdayLabel} — ${hoje}`;
+
+  // tenta achar o(s) grupo(s) cujo nome corresponde ao dia de hoje
+  // (ex: "Grupo de quarta" no dia de quarta-feira)
+  const keyword = getWeekdayKeyword(now);
+  const todaysGroups = groups.filter(g => normalizeStr(g.name).includes(keyword));
+
+  if (!todaysGroups.length) {
+    wrap.innerHTML = `<div class="empty"><div class="empty-icon">📅</div><p>Nenhum grupo cadastrado para hoje (${esc(weekdayLabel)}).</p></div>`;
+    return;
+  }
+
+  const gIds = new Set(todaysGroups.map(g => g.id));
+  const targetMonitors = monitors.filter(m => gIds.has(m.groupId));
+  const scopeLabel = todaysGroups.map(g => g.name).join(', ');
+
+  if (!targetMonitors.length) {
+    wrap.innerHTML = `<div class="empty"><div class="empty-icon">👤</div><p>Nenhum monitor cadastrado no grupo de hoje (${esc(scopeLabel)}).</p></div>`;
+    return;
+  }
+
+  // ordena: quem já confirmou primeiro, depois em ordem alfabética
+  const rowsData = targetMonitors.map(m => {
+    const conf = confirmations.find(c => c.monitorId === m.id && c.date === hoje);
+    const g = groups.find(g => g.id === m.groupId);
+    return { monitor: m, group: g, conf };
+  }).sort((a,b) => {
+    if (!!a.conf !== !!b.conf) return a.conf ? -1 : 1;
+    return a.monitor.name.localeCompare(b.monitor.name, 'pt-BR');
+  });
+
+  const rows = rowsData.map(({monitor, group, conf}) => {
+    const color = group ? group.color : 'var(--gray)';
+    const groupTag = group
+      ? `<span class="pill" style="background:${color}20;color:${color};border:1px solid ${color}44;font-size:.7rem">${esc(group.name)}</span>`
+      : `<span class="pill pill-gray" style="font-size:.7rem">Sem grupo</span>`;
+    const statusTag = conf
+      ? `<span class="today-status">✓ Confirmado às ${esc(conf.time)}</span>`
+      : `<span class="today-status today-status-pending">⏳ Ainda não confirmou</span>`;
+    return `
+    <tr>
+      <td class="today-name">${esc(monitor.name)}</td>
+      <td>${groupTag}</td>
+      <td>${statusTag}</td>
+    </tr>`;
+  }).join('');
+
+  const confirmedCount = rowsData.filter(r => r.conf).length;
+
+  wrap.innerHTML = `
+    <p class="today-scope-lbl">Grupo de hoje: <strong>${esc(scopeLabel)}</strong> — ${confirmedCount}/${targetMonitors.length} confirmaram</p>
+    <table class="today-table">
+      <thead><tr><th>Monitor</th><th>Grupo</th><th>Status</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function reloadToday() {
+  const bar = document.getElementById('loadingToday');
+  if (bar) bar.style.display = 'block';
+  load().then(() => {
+    if (bar) bar.style.display = 'none';
+  });
 }
 
 async function save() {
@@ -517,6 +689,22 @@ function hasConfirmedThisSlot(monitorId) {
 }
 
 // ── TOKEN / QR LANDING ─────────────────────────────────
+function goHome() {
+  // remove o token da URL para não voltar pra tela de confirmação num refresh
+  const url = new URL(window.location.href);
+  url.searchParams.delete('token');
+  window.history.replaceState({}, '', url);
+  showScreen('home');
+  renderHomeToday();
+}
+
+function retryConfirm() {
+  document.getElementById('confirmWrap').innerHTML = `
+    <div class="loading-bar" style="max-width:300px;margin:0 auto 30px"></div>
+    <p style="color:var(--gray)">Verificando...</p>`;
+  load();
+}
+
 function checkToken() {
   const token = new URLSearchParams(window.location.search).get('token');
   if (!token) return;
@@ -524,10 +712,23 @@ function checkToken() {
 
   const monitor = monitors.find(m => m.token === token);
   if (!monitor) {
+    if (lastLoadFailed) {
+      document.getElementById('confirmWrap').innerHTML = `
+        <div class="confirm-icon">📡</div>
+        <div class="confirm-name" style="color:var(--amber)">Sem conexão</div>
+        <p class="confirm-sub" style="margin-top:8px">Não foi possível verificar seu QR Code agora. Confira sua internet e tente novamente.</p>
+        <div class="retry-box">
+          <p>Se o problema continuar, avise um administrador.</p>
+          <button class="btn btn-teal btn-full" onclick="retryConfirm()">🔄 Tentar novamente</button>
+        </div>
+        <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="goHome()">🏠 Voltar ao início</button>`;
+      return;
+    }
     document.getElementById('confirmWrap').innerHTML = `
       <div class="confirm-icon">❌</div>
       <div class="confirm-name" style="color:var(--red)">QR Code inválido</div>
-      <p class="confirm-sub" style="margin-top:8px">Este código não corresponde a nenhum monitor cadastrado.</p>`;
+      <p class="confirm-sub" style="margin-top:8px">Este código não corresponde a nenhum monitor cadastrado.</p>
+      <button class="btn btn-ghost btn-full" style="margin-top:20px" onclick="goHome()">🏠 Voltar ao início</button>`;
     return;
   }
 
@@ -546,6 +747,7 @@ function checkToken() {
         <div class="cooldown-timer">${text}</div>
         <div class="cooldown-timer-lbl">para próxima confirmação disponível</div>
         <div style="font-size:.78rem;color:var(--gray);margin-top:8px">Libera em: ${date}</div>
+        <button class="btn btn-ghost btn-full" style="margin-top:22px" onclick="goHome()">🏠 Voltar ao início</button>
       </div>`;
     return;
   }
@@ -586,7 +788,8 @@ function checkToken() {
     <div class="confirm-sub">${dateStr} — Laboratório de Informática</div>
     <p style="color:var(--gray);font-size:.82rem;margin-top:20px;max-width:280px;margin-left:auto;margin-right:auto;line-height:1.6">
       Sua presença foi registrada com sucesso e já está visível para os administradores.
-    </p>`;
+    </p>
+    <button class="btn btn-teal btn-full" style="margin-top:22px" onclick="goHome()">🏠 Ver quem já confirmou hoje</button>`;
 }
 
 // ── SCREENS ────────────────────────────────────────────
@@ -654,6 +857,7 @@ function renderGroups() {
         </div>
       </div>
       <div class="item-actions">
+        <button class="btn btn-outline btn-sm" onclick="editGroup('${g.id}')">✎ Editar</button>
         <button class="btn btn-danger btn-sm" onclick="deleteGroup('${g.id}')">Excluir</button>
       </div>
     </div>`;
@@ -731,6 +935,7 @@ function monitorItemHTML(m, g) {
     <div class="item-actions">
       ${groupPill}
       <button class="btn btn-sm btn-outline" onclick="showQR('${m.id}')">QR Code</button>
+      <button class="btn btn-sm btn-outline" onclick="editMonitor('${m.id}')">✎ Editar</button>
       <button class="btn btn-danger btn-sm" onclick="deleteMonitor('${m.id}')">Excluir</button>
     </div>
   </div>`;
@@ -808,13 +1013,53 @@ async function addGroup() {
   const errEl = document.getElementById('groupError');
   errEl.classList.remove('show');
   if (!name) { errEl.textContent='⚠ Informe o nome do grupo.'; errEl.classList.add('show'); return; }
-  if (groups.find(g => g.name.toLowerCase()===name.toLowerCase())) {
+  const dup = groups.find(g => g.name.toLowerCase()===name.toLowerCase() && g.id!==editingGroupId);
+  if (dup) {
     errEl.textContent='⚠ Já existe um grupo com esse nome.'; errEl.classList.add('show'); return;
   }
-  groups.push({id:Date.now().toString(), name, color:selectedColor, createdAt:new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})});
-  document.getElementById('newGroupName').value='';
+
+  if (editingGroupId) {
+    const g = groups.find(g => g.id === editingGroupId);
+    if (g) {
+      g.name = name;
+      g.color = selectedColor;
+      // propaga o nome/cor atualizados para confirmações já registradas
+      confirmations.forEach(c => { if (c.groupId === g.id) { c.groupName = g.name; c.groupColor = g.color; } });
+    }
+    cancelEditGroup();
+  } else {
+    groups.push({id:Date.now().toString(), name, color:selectedColor, createdAt:new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})});
+    document.getElementById('newGroupName').value='';
+  }
   await save();
   renderAll();
+}
+
+function editGroup(id) {
+  const g = groups.find(g => g.id === id);
+  if (!g) return;
+  editingGroupId = id;
+  document.getElementById('newGroupName').value = g.name;
+  selectedColor = g.color;
+  buildSwatches();
+  document.getElementById('groupFormTitle').textContent = 'Editar Grupo';
+  document.getElementById('groupEditBadge').style.display = 'inline-flex';
+  document.getElementById('groupSubmitBtn').textContent = '💾 Salvar Alterações';
+  document.getElementById('groupCancelBtn').style.display = 'block';
+  document.getElementById('newGroupName').scrollIntoView({behavior:'smooth', block:'center'});
+  document.getElementById('newGroupName').focus();
+}
+
+function cancelEditGroup() {
+  editingGroupId = null;
+  document.getElementById('newGroupName').value = '';
+  document.getElementById('groupError').classList.remove('show');
+  selectedColor = GROUP_COLORS[0].hex;
+  buildSwatches();
+  document.getElementById('groupFormTitle').textContent = 'Novo Grupo';
+  document.getElementById('groupEditBadge').style.display = 'none';
+  document.getElementById('groupSubmitBtn').textContent = '+ Criar Grupo';
+  document.getElementById('groupCancelBtn').style.display = 'none';
 }
 
 async function deleteGroup(id) {
@@ -831,17 +1076,63 @@ async function addMonitor() {
   const errEl = document.getElementById('monitorError');
   errEl.classList.remove('show');
   if (!name) { errEl.textContent='⚠ Informe o nome do monitor.'; errEl.classList.add('show'); return; }
-  if (monitors.find(m => m.name.toLowerCase()===name.toLowerCase())) {
+  const dup = monitors.find(m => m.name.toLowerCase()===name.toLowerCase() && m.id!==editingMonitorId);
+  if (dup) {
     errEl.textContent='⚠ Já existe um monitor com esse nome.'; errEl.classList.add('show'); return;
   }
-  monitors.push({
-    id:Date.now().toString(), name, groupId,
-    token:generateToken(),
-    createdAt:new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})
-  });
-  document.getElementById('newMonitorName').value='';
+
+  if (editingMonitorId) {
+    const m = monitors.find(m => m.id === editingMonitorId);
+    if (m) {
+      m.name = name;
+      m.groupId = groupId;
+      // propaga nome/grupo atualizados para confirmações já registradas
+      const g = groups.find(g => g.id === groupId);
+      confirmations.forEach(c => {
+        if (c.monitorId === m.id) {
+          c.name = m.name;
+          c.groupId = groupId;
+          c.groupName = g ? g.name : '';
+          c.groupColor = g ? g.color : '';
+        }
+      });
+    }
+    cancelEditMonitor();
+  } else {
+    monitors.push({
+      id:Date.now().toString(), name, groupId,
+      token:generateToken(),
+      createdAt:new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})
+    });
+    document.getElementById('newMonitorName').value='';
+  }
   await save();
   renderAll();
+}
+
+function editMonitor(id) {
+  const m = monitors.find(m => m.id === id);
+  if (!m) return;
+  editingMonitorId = id;
+  document.getElementById('newMonitorName').value = m.name;
+  document.getElementById('newMonitorGroup').value = m.groupId || '';
+  document.getElementById('monitorFormTitle').textContent = 'Editar Monitor';
+  document.getElementById('monitorEditBadge').style.display = 'inline-flex';
+  document.getElementById('monitorSubmitBtn').textContent = '💾 Salvar Alterações';
+  document.getElementById('monitorCancelBtn').style.display = 'block';
+  document.getElementById('newMonitorName').scrollIntoView({behavior:'smooth', block:'center'});
+  document.getElementById('newMonitorName').focus();
+}
+
+function cancelEditMonitor() {
+  editingMonitorId = null;
+  document.getElementById('newMonitorName').value = '';
+  document.getElementById('newMonitorGroup').value = '';
+  document.getElementById('monitorError').classList.remove('show');
+  document.getElementById('monitorFormTitle').textContent = 'Novo Monitor';
+  document.getElementById('monitorEditBadge').style.display = 'none';
+  document.getElementById('monitorSubmitBtn').textContent = '+ Adicionar Monitor';
+  document.getElementById('monitorCancelBtn').style.display = 'none';
 }
 
 async function deleteMonitor(id) {
@@ -852,6 +1143,7 @@ async function deleteMonitor(id) {
 }
 
 async function deleteConfirm(id) {
+  if (!confirm('Remover esta confirmação de presença? Esta ação não pode ser desfeita.')) return;
   confirmations = confirmations.filter(c => c.id!==id);
   await save();
   renderAll();
@@ -870,6 +1162,52 @@ function showQR(id) {
   qrEl.innerHTML='';
   new QRCode(qrEl,{text:url,width:240,height:240,colorDark:'#000000',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.H});
   document.getElementById('qrModal').style.display='flex';
+}
+
+// ── BULK QR ────────────────────────────────────────────
+function openBulkQR() {
+  const q  = (document.getElementById('searchMonitor')||{}).value||'';
+  const gf = (document.getElementById('filterGroup')||{}).value||'';
+  let list = monitors;
+  if (q.trim()) list = list.filter(m => m.name.toLowerCase().includes(q.toLowerCase()));
+  if (gf) list = list.filter(m => m.groupId === gf);
+
+  const titleEl = document.getElementById('bulkQRTitle');
+  if (gf) {
+    const g = groups.find(g => g.id === gf);
+    titleEl.innerHTML = `QR Codes — <span>${esc(g ? g.name : 'Grupo')}</span>`;
+  } else {
+    titleEl.innerHTML = `QR Codes dos <span>Monitores</span>`;
+  }
+
+  const grid = document.getElementById('bulkQRGrid');
+  grid.innerHTML = '';
+
+  if (!list.length) {
+    grid.innerHTML = `<div class="empty"><div class="empty-icon">👤</div><p>Nenhum monitor para gerar QR Code.</p></div>`;
+    showScreen('bulkQR');
+    return;
+  }
+
+  list.forEach(m => {
+    const g = groups.find(g => g.id === m.groupId);
+    const url = `${BASE_URL}?token=${m.token}`;
+    const card = document.createElement('div');
+    card.className = 'qr-card';
+    card.innerHTML = `
+      <div class="qr-card-name">${esc(m.name)}</div>
+      <div class="qr-card-group" style="color:${g ? g.color : 'var(--gray)'}">${g ? '● '+esc(g.name) : 'Sem grupo'}</div>
+      <div class="bulk-qr-canvas-holder"></div>
+      <div class="qr-card-link">${esc(url)}</div>
+    `;
+    grid.appendChild(card);
+    new QRCode(card.querySelector('.bulk-qr-canvas-holder'), {
+      text:url, width:180, height:180,
+      colorDark:'#000000', colorLight:'#ffffff', correctLevel:QRCode.CorrectLevel.H
+    });
+  });
+
+  showScreen('bulkQR');
 }
 
 // ── TABS ───────────────────────────────────────────────
