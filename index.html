@@ -471,6 +471,29 @@ const GROUP_COLORS = [
 let selectedColor = GROUP_COLORS[0].hex;
 
 // ── STATE ──────────────────────────────────────────────
+// Retorna um objeto Date cujos valores (hora, dia, mês...) já correspondem
+// ao horário de Brasília (America/Sao_Paulo), não importa o fuso horário
+// configurado no aparelho de quem está acessando o site. Isso resolve o
+// caso de monitores cujo celular está com o fuso errado (ex: configurado
+// automaticamente para outro país) e por isso registrava hora errada.
+function nowSP() {
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Sao_Paulo',
+      year:'numeric', month:'2-digit', day:'2-digit',
+      hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false
+    });
+    const parts = fmt.formatToParts(new Date());
+    const get = t => parts.find(p => p.type===t).value;
+    let hour = get('hour');
+    if (hour === '24') hour = '00'; // alguns navegadores retornam '24' à meia-noite
+    return new Date(`${get('year')}-${get('month')}-${get('day')}T${hour}:${get('minute')}:${get('second')}`);
+  } catch (e) {
+    // fallback: se o navegador não suportar Intl com timeZone, usa hora local mesmo
+    return new Date();
+  }
+}
+
 let groups = [];
 let monitors = [];
 let confirmations = [];
@@ -540,7 +563,7 @@ function renderHomeToday() {
   const dateLbl = document.getElementById('todayDateLabel');
   if (!wrap) return; // screen not in DOM yet
 
-  const now = new Date();
+  const now = nowSP();
   const hoje = now.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
   const weekdayName = now.toLocaleDateString('pt-BR',{weekday:'long'});
   const weekdayLabel = weekdayName.charAt(0).toUpperCase() + weekdayName.slice(1);
@@ -721,7 +744,7 @@ function hideLoading() {
 //   pm = 12:00 to 23:59  (slot opened at noon today)
 // Confirmed in slot X → can't confirm again until slot changes
 function getCurrentSlot() {
-  const now = new Date();
+  const now = nowSP();
   const y = now.getFullYear();
   const m = String(now.getMonth()+1).padStart(2,'0');
   const d = String(now.getDate()).padStart(2,'0');
@@ -730,7 +753,7 @@ function getCurrentSlot() {
 }
 
 function getNextResetText() {
-  const now = new Date();
+  const now = nowSP();
   const next = new Date(now);
   if (now.getHours() >= 12) {
     // next reset: tomorrow at noon
@@ -795,13 +818,52 @@ function checkToken() {
     return;
   }
 
-  // Mostra "confirmando..." enquanto a gravação é feita com os dados
-  // mais atuais do servidor (evita apagar/duplicar registros de outras pessoas)
+  // Se já confirmou este turno (checagem local, rápida), mostra direto a
+  // tela de cooldown sem precisar de nenhum toque.
+  if (hasConfirmedThisSlot(monitor.id)) {
+    const existing = confirmations.find(c => c.monitorId === monitor.id && c.slot === getCurrentSlot());
+    renderCooldownScreen(monitor.id, existing);
+    return;
+  }
+
+  // IMPORTANTE: a presença NÃO é confirmada automaticamente ao abrir o link.
+  // É preciso tocar no botão. Isso evita registros falsos criados por
+  // pré-visualizações de link (WhatsApp/Telegram/Instagram geram uma prévia
+  // abrindo a página escondida assim que o link é compartilhado — sem isso,
+  // isso já registrava uma "presença" com o horário em que o link foi
+  // enviado, não o horário real de chegada), além de evitar duplicidade por
+  // toque duplo ou a página recarregar sozinha.
+  const group = groups.find(g => g.id === monitor.groupId);
+  const groupBadge = group
+    ? `<div class="confirm-group-badge" style="background:${group.color}22;border:1px solid ${group.color}55;color:${group.color}">
+        <span style="width:8px;height:8px;border-radius:50%;background:${group.color};display:inline-block"></span>
+        ${esc(group.name)}
+       </div>`
+    : '';
+  document.getElementById('confirmWrap').innerHTML = `
+    <div class="confirm-icon">🖐️</div>
+    <div class="confirm-name">${esc(monitor.name)}</div>
+    ${groupBadge}
+    <p class="confirm-sub" style="margin-top:14px">Toque no botão abaixo para confirmar sua chegada ao laboratório.</p>
+    <button class="btn btn-teal btn-full" style="margin-top:24px" id="confirmBtn" onclick="confirmNow('${monitor.id}')">✅ Confirmar Presença</button>
+    <button class="btn btn-ghost btn-full" style="margin-top:10px" onclick="goHome()">🏠 Voltar ao início</button>`;
+}
+
+let confirmInProgress = false;
+
+async function confirmNow(monitorId) {
+  if (confirmInProgress) return; // trava contra clique duplo
+  confirmInProgress = true;
+
   document.getElementById('confirmWrap').innerHTML = `
     <div class="loading-bar" style="max-width:300px;margin:0 auto 30px"></div>
     <p style="color:var(--gray)">Confirmando presença...</p>`;
 
-  registerAttendance(monitor.id);
+  try {
+    await registerAttendance(monitorId);
+  } finally {
+    confirmInProgress = false;
+  }
 }
 
 function renderCooldownScreen(monitorId, existingEntry) {
@@ -849,7 +911,7 @@ async function registerAttendance(monitorId) {
       const already = confirmations.find(c => c.monitorId === freshMonitor.id && c.slot === slot);
       if (already) throw new AlreadyConfirmedError(already);
 
-      const now = new Date();
+      const now = nowSP();
       const dateStr = now.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
       const timeStr = now.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
       const group = groups.find(g => g.id === freshMonitor.groupId);
@@ -871,7 +933,14 @@ async function registerAttendance(monitorId) {
     });
   } catch (e) {
     if (e instanceof AlreadyConfirmedError) { renderCooldownScreen(monitorId, e.existing); return; }
-    if (e instanceof ValidationError) { renderCooldownScreen(monitorId, null); return; }
+    if (e instanceof ValidationError) {
+      document.getElementById('confirmWrap').innerHTML = `
+        <div class="confirm-icon">❌</div>
+        <div class="confirm-name" style="color:var(--red)">Não foi possível confirmar</div>
+        <p class="confirm-sub" style="margin-top:8px">${esc(e.message)}</p>
+        <button class="btn btn-ghost btn-full" style="margin-top:20px" onclick="goHome()">🏠 Voltar ao início</button>`;
+      return;
+    }
     renderConfirmConnectionError();
     return;
   }
@@ -919,7 +988,7 @@ function renderAll() {
 }
 
 function updateStats() {
-  const hoje = new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const hoje = nowSP().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
   document.getElementById('statGrupos').textContent    = groups.length;
   document.getElementById('statMonitores').textContent = monitors.length;
   document.getElementById('statHoje').textContent      = confirmations.filter(c => c.date===hoje).length;
@@ -946,7 +1015,7 @@ function renderGroups() {
   }
   el.innerHTML = groups.map(g => {
     const count = monitors.filter(m => m.groupId === g.id).length;
-    const hoje = new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
+    const hoje = nowSP().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
     const confHoje = confirmations.filter(c => c.groupId === g.id && c.date === hoje).length;
     const confTotal = confirmations.filter(c => c.groupId === g.id).length;
     return `
@@ -1023,7 +1092,7 @@ function renderMonitores() {
 function monitorItemHTML(m, g) {
   const color = g ? g.color : 'var(--gray)';
   const confCount = confirmations.filter(c => c.monitorId === m.id).length;
-  const hoje = new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
+  const hoje = nowSP().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
   const confHoje = confirmations.filter(c => c.monitorId === m.id && c.date === hoje).length;
   const groupPill = g
     ? `<span class="pill" style="background:${g.color}20;color:${g.color};border:1px solid ${g.color}44">${esc(g.name)}</span>`
@@ -1136,7 +1205,7 @@ async function addGroup() {
           confirmations.forEach(c => { if (c.groupId === g.id) { c.groupName = g.name; c.groupColor = g.color; } });
         }
       } else {
-        groups.push({id:Date.now().toString(), name, color, createdAt:new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})});
+        groups.push({id:Date.now().toString(), name, color, createdAt:nowSP().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})});
       }
     });
   } catch (e) {
@@ -1220,7 +1289,7 @@ async function addMonitor() {
         monitors.push({
           id:Date.now().toString(), name, groupId,
           token:generateToken(),
-          createdAt:new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})
+          createdAt:nowSP().toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'})
         });
       }
     });
@@ -1372,7 +1441,7 @@ function getDayIndex(dateStr) {
 }
 
 function renderGraficos() {
-  const hoje = new Date();
+  const hoje = nowSP();
   const startOfThisWeek = new Date(hoje);
   startOfThisWeek.setDate(hoje.getDate() - ((hoje.getDay()+6)%7));
   startOfThisWeek.setHours(0,0,0,0);
@@ -1552,7 +1621,7 @@ function exportCSV() {
 
   const from = (document.getElementById('filterDateFrom')||{}).value||'';
   const to   = (document.getElementById('filterDateTo')||{}).value||'';
-  const geradoEm = new Date().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  const geradoEm = nowSP().toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
   const periodoLabel = from && to ? `${from} até ${to}` : from ? `A partir de ${from}` : to ? `Até ${to}` : 'Completo';
 
   // sort oldest first
